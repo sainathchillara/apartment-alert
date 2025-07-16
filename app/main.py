@@ -1,8 +1,10 @@
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from starlette.status import HTTP_303_SEE_OTHER
 from sqlalchemy.orm import Session
+from io import StringIO
+import csv
 
 from . import models, crud
 from .alerts import router as alert_router
@@ -14,13 +16,12 @@ app.include_router(alert_router)
 
 templates = Jinja2Templates(directory="app/templates")
 
-
-# ✅ Root route to prevent 404 on home
+# ✅ Homepage route
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-
+# ✅ Alerts UI route
 @app.get("/html-alerts", response_class=HTMLResponse)
 def html_alerts(
     request: Request,
@@ -43,7 +44,7 @@ def html_alerts(
         "message": message
     })
 
-
+# ✅ Create alert
 @app.post("/create-alert")
 def create_alert_form(
     email: str = Form(...),
@@ -75,13 +76,13 @@ def create_alert_form(
         return RedirectResponse(url="/html-alerts?message=Alert+created!", status_code=HTTP_303_SEE_OTHER)
     return RedirectResponse(url="/html-alerts?message=Alert+already+exists", status_code=HTTP_303_SEE_OTHER)
 
-
+# ✅ Delete alert
 @app.post("/delete-alert")
 def delete_alert_form(alert_id: int = Form(...), db: Session = Depends(get_db)):
     crud.delete_alert(db, alert_id)
     return RedirectResponse(url="/html-alerts?message=Alert+deleted!", status_code=HTTP_303_SEE_OTHER)
 
-
+# ✅ Edit alert
 @app.post("/edit-alert")
 def edit_alert_form(
     alert_id: int = Form(...),
@@ -102,3 +103,29 @@ def edit_alert_form(
         "bathrooms": bathrooms
     })
     return RedirectResponse(url="/html-alerts?message=Alert+updated!", status_code=HTTP_303_SEE_OTHER)
+
+# ✅ Export CSV route
+@app.get("/export-alerts")
+def export_alerts(db: Session = Depends(get_db)):
+    alerts = db.query(models.Alert).order_by(models.Alert.created_at.desc()).all()
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Email", "Location", "Min Price", "Max Price", "Bedrooms", "Bathrooms", "Created At"])
+
+    for alert in alerts:
+        writer.writerow([
+            alert.id,
+            alert.email,
+            alert.location,
+            alert.min_price,
+            alert.max_price,
+            alert.bedrooms,
+            alert.bathrooms,
+            alert.created_at
+        ])
+
+    output.seek(0)
+    return StreamingResponse(output, media_type="text/csv", headers={
+        "Content-Disposition": "attachment; filename=alerts.csv"
+    })
