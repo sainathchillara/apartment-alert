@@ -2,16 +2,24 @@ from fastapi import FastAPI, Request, Depends, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.status import HTTP_303_SEE_OTHER
+from sqlalchemy.orm import Session
+
 from . import models, crud
 from .alerts import router as alert_router
 from .database import get_db
-from sqlalchemy.orm import Session
 from .schemas import AlertCreate
 
 app = FastAPI()
 app.include_router(alert_router)
 
 templates = Jinja2Templates(directory="app/templates")
+
+
+# ✅ Root route to prevent 404 on home
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
 
 @app.get("/html-alerts", response_class=HTMLResponse)
 def html_alerts(
@@ -35,6 +43,7 @@ def html_alerts(
         "message": message
     })
 
+
 @app.post("/create-alert")
 def create_alert_form(
     email: str = Form(...),
@@ -45,7 +54,6 @@ def create_alert_form(
     bathrooms: int = Form(0),
     db: Session = Depends(get_db)
 ):
-    # Prevent duplicate
     existing = db.query(models.Alert).filter_by(
         email=email,
         location=location,
@@ -67,10 +75,12 @@ def create_alert_form(
         return RedirectResponse(url="/html-alerts?message=Alert+created!", status_code=HTTP_303_SEE_OTHER)
     return RedirectResponse(url="/html-alerts?message=Alert+already+exists", status_code=HTTP_303_SEE_OTHER)
 
+
 @app.post("/delete-alert")
 def delete_alert_form(alert_id: int = Form(...), db: Session = Depends(get_db)):
     crud.delete_alert(db, alert_id)
     return RedirectResponse(url="/html-alerts?message=Alert+deleted!", status_code=HTTP_303_SEE_OTHER)
+
 
 @app.post("/edit-alert")
 def edit_alert_form(
